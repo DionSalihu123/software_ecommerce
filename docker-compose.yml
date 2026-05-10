@@ -1,3 +1,5 @@
+version: "3.8"
+
 services:
 
   user-service:
@@ -14,3 +16,8 @@ services:
     build: ./order_sherbime
     ports:
       - "8002:8000"
+
+  notification-service:
+    build: ./notification_service
+    ports:
+      - "8003:8000"
