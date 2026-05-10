@@ -9,3 +9,8 @@ services:
     build: ./produkt_sherbime
     ports:
       - "8001:8000"
+
+  order-service:
+    build: ./order_sherbime
+    ports:
+      - "8002:8000"
