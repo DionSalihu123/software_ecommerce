@@ -1,0 +1,11 @@
+services:
+
+  user-service:
+    build: ./user_sherbime
+    ports:
+      - "8000:8000"
+
+  product-service:
+    build: ./produkt_sherbime
+    ports:
+      - "8001:8000"
