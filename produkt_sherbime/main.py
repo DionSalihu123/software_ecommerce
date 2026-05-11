@@ -1,58 +1,28 @@
 from fastapi import FastAPI, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import (
-    create_engine,
-    Column,
-    Integer,
-    String,
-    Float,
-    DateTime
-)
-from sqlalchemy.orm import declarative_base, sessionmaker, Session
+from sqlalchemy import Column, Integer, String, Float, DateTime
+from sqlalchemy.orm import Session
 from datetime import datetime
 from typing import List
 
-DATABASE_URL = "postgresql://postgres:password@postgres-db:5432/ecommerce"
-
-engine = create_engine(DATABASE_URL)
-
-SessionLocal = sessionmaker(
-    autocommit=False,
-    autoflush=False,
-    bind=engine
-)
-
-Base = declarative_base()
+from database import Base, engine, SessionLocal
 
 app = FastAPI()
 
-
-# --------------------------------
-# DATABASE MODEL
-# --------------------------------
 
 class Product(Base):
     __tablename__ = "products"
 
     id = Column(Integer, primary_key=True, index=True)
-
     name = Column(String, nullable=False)
-
-    description = Column(String, nullable=True)
-
+    description = Column(String)
     price = Column(Float, nullable=False)
-
     stock = Column(Integer, default=0)
-
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
 Base.metadata.create_all(bind=engine)
 
-
-# --------------------------------
-# PYDANTIC SCHEMAS
-# --------------------------------
 
 class ProductCreate(BaseModel):
     name: str
@@ -73,41 +43,20 @@ class ProductResponse(BaseModel):
         from_attributes = True
 
 
-# --------------------------------
-# DATABASE SESSION
-# --------------------------------
-
 def get_db():
     db = SessionLocal()
-
     try:
         yield db
-
     finally:
         db.close()
 
 
-# --------------------------------
-# ROUTES
-# --------------------------------
-
 @app.post("/products", response_model=ProductResponse)
-def create_product(
-    product: ProductCreate,
-    db: Session = Depends(get_db)
-):
-
-    new_product = Product(
-        name=product.name,
-        description=product.description,
-        price=product.price,
-        stock=product.stock
-    )
+def create_product(product: ProductCreate, db: Session = Depends(get_db)):
+    new_product = Product(**product.model_dump())
 
     db.add(new_product)
-
     db.commit()
-
     db.refresh(new_product)
 
     return new_product
@@ -115,26 +64,14 @@ def create_product(
 
 @app.get("/products", response_model=List[ProductResponse])
 def get_products(db: Session = Depends(get_db)):
-
-    products = db.query(Product).all()
-
-    return products
+    return db.query(Product).all()
 
 
 @app.get("/products/{product_id}", response_model=ProductResponse)
-def get_product(
-    product_id: int,
-    db: Session = Depends(get_db)
-):
-
-    product = db.query(Product).filter(
-        Product.id == product_id
-    ).first()
+def get_product(product_id: int, db: Session = Depends(get_db)):
+    product = db.query(Product).filter(Product.id == product_id).first()
 
     if not product:
-        raise HTTPException(
-            status_code=404,
-            detail="Product not found"
-        )
+        raise HTTPException(status_code=404, detail="Product not found")
 
     return product
