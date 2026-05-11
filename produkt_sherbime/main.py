@@ -1,31 +1,140 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends, HTTPException
+from pydantic import BaseModel
+from sqlalchemy import (
+    create_engine,
+    Column,
+    Integer,
+    String,
+    Float,
+    DateTime
+)
+from sqlalchemy.orm import declarative_base, sessionmaker, Session
+from datetime import datetime
+from typing import List
+
+DATABASE_URL = "postgresql://postgres:password@postgres-db:5432/ecommerce"
+
+engine = create_engine(DATABASE_URL)
+
+SessionLocal = sessionmaker(
+    autocommit=False,
+    autoflush=False,
+    bind=engine
+)
+
+Base = declarative_base()
 
 app = FastAPI()
 
-products = [
-    {"id": 1, "name": "Cyberpunk 2077", "price": 50},
-    {"id": 2, "name": "Minecraft", "price": 30}
-]
 
-@app.get("/")
-def home():
-    return {"message": "Product Service Running"}
+# --------------------------------
+# DATABASE MODEL
+# --------------------------------
 
-@app.get("/products")
-def get_products():
+class Product(Base):
+    __tablename__ = "products"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    name = Column(String, nullable=False)
+
+    description = Column(String, nullable=True)
+
+    price = Column(Float, nullable=False)
+
+    stock = Column(Integer, default=0)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+Base.metadata.create_all(bind=engine)
+
+
+# --------------------------------
+# PYDANTIC SCHEMAS
+# --------------------------------
+
+class ProductCreate(BaseModel):
+    name: str
+    description: str | None = None
+    price: float
+    stock: int
+
+
+class ProductResponse(BaseModel):
+    id: int
+    name: str
+    description: str | None
+    price: float
+    stock: int
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# --------------------------------
+# DATABASE SESSION
+# --------------------------------
+
+def get_db():
+    db = SessionLocal()
+
+    try:
+        yield db
+
+    finally:
+        db.close()
+
+
+# --------------------------------
+# ROUTES
+# --------------------------------
+
+@app.post("/products", response_model=ProductResponse)
+def create_product(
+    product: ProductCreate,
+    db: Session = Depends(get_db)
+):
+
+    new_product = Product(
+        name=product.name,
+        description=product.description,
+        price=product.price,
+        stock=product.stock
+    )
+
+    db.add(new_product)
+
+    db.commit()
+
+    db.refresh(new_product)
+
+    return new_product
+
+
+@app.get("/products", response_model=List[ProductResponse])
+def get_products(db: Session = Depends(get_db)):
+
+    products = db.query(Product).all()
+
     return products
 
-@app.post("/products")
-def add_product(name: str, price: float):
-    new_product = {
-        "id": len(products) + 1,
-        "name": name,
-        "price": price
-    }
 
-    products.append(new_product)
+@app.get("/products/{product_id}", response_model=ProductResponse)
+def get_product(
+    product_id: int,
+    db: Session = Depends(get_db)
+):
 
-    return {
-        "message": "Product added",
-        "product": new_product
-    }
+    product = db.query(Product).filter(
+        Product.id == product_id
+    ).first()
+
+    if not product:
+        raise HTTPException(
+            status_code=404,
+            detail="Product not found"
+        )
+
+    return product
