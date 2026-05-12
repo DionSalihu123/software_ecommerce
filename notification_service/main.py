@@ -1,12 +1,25 @@
 from fastapi import FastAPI
+import threading
+import logging
+
+from consumer import consume_messages
 
 app = FastAPI()
+
+logging.basicConfig(level=logging.INFO)
+
 
 @app.get("/")
 def home():
     return {"message": "Notification Service Running"}
 
-@app.post("/notify")
-def notify(message: str):
-    print(f"NOTIFICATION SENT: {message}")
-    return {"status": "sent", "message": message}
+
+def start_consumer():
+    logging.info("🚀 Starting RabbitMQ consumer thread...")
+    thread = threading.Thread(target=consume_messages, daemon=True)
+    thread.start()
+
+
+@app.on_event("startup")
+def startup_event():
+    start_consumer()
