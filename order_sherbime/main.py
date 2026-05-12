@@ -1,33 +1,10 @@
-from fastapi import FastAPI, HTTPException, Depends
-from sqlalchemy.orm import Session
+from fastapi import FastAPI
 
-from models import Base, Order
-from database import engine, SessionLocal
-
-app = FastAPI()
+from database import engine, Base
+from routes.orders import router as orders_router
 
 Base.metadata.create_all(bind=engine)
 
+app = FastAPI()
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-
-@app.post("/orders")
-def create_order(user_id: int, product_id: int, db: Session = Depends(get_db)):
-    order = Order(user_id=user_id, product_id=product_id)
-
-    db.add(order)
-    db.commit()
-    db.refresh(order)
-
-    return order
-
-
-@app.get("/orders")
-def get_orders(db: Session = Depends(get_db)):
-    return db.query(Order).all()
+app.include_router(orders_router)
