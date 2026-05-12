@@ -1,28 +1,40 @@
-import json
 import pika
+import json
+import logging
 
+logging.basicConfig(level=logging.INFO)
 
 RABBITMQ_HOST = "rabbitmq"
 
 
-def publish_order_created(order_data):
-
+def get_connection():
     connection = pika.BlockingConnection(
         pika.ConnectionParameters(host=RABBITMQ_HOST)
     )
+    return connection
 
-    channel = connection.channel()
 
-    # create queue if not exists
-    channel.queue_declare(queue="order_created")
+def publish_order_created(order_data: dict):
+    """
+    Publishes order created event to RabbitMQ
+    """
+    try:
+        connection = get_connection()
+        channel = connection.channel()
 
-    # publish message
-    channel.basic_publish(
-        exchange="",
-        routing_key="order_created",
-        body=json.dumps(order_data)
-    )
+        channel.queue_declare(queue="orders")
 
-    print("Order event published")
+        message = json.dumps(order_data)
 
-    connection.close()
+        channel.basic_publish(
+            exchange="",
+            routing_key="orders",
+            body=message
+        )
+
+        connection.close()
+
+        logging.info("📦 Order event published to RabbitMQ")
+
+    except Exception as e:
+        logging.error(f"❌ Failed to publish order: {e}")
