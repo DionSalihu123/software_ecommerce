@@ -1,18 +1,16 @@
 from fastapi import FastAPI
 import logging
-
 from database import engine, Base
 from routes.orders import router as orders_router
 
 Base.metadata.create_all(bind=engine)
 
-app = FastAPI()
+app = FastAPI(title="Order Service")
 
 logging.basicConfig(level=logging.INFO)
 
 app.include_router(orders_router)
 
-
 @app.get("/")
 def home():
-    return {"message": "Order Service Running"}
+    return {"message": "Order Service Running ✅"}
