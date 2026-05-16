@@ -6,8 +6,11 @@ from models import Order, generate_license_key
 from schemas import OrderCreate
 from rabbitmq import publish_order_created
 from decimal import Decimal
+import os
 
-PRODUCT_SERVICE_URL = "http://product-service:8000"
+PRODUCT_SERVICE_URL = os.getenv("PRODUCT_SERVICE_URL", "http://product-service:8000")
+PAYMENT_SERVICE_URL = os.getenv("PAYMENT_SERVICE_URL", "http://payment-service:8000")
+
 
 def get_product_details(product_id: int) -> dict:
     try:
@@ -18,14 +21,12 @@ def get_product_details(product_id: int) -> dict:
     except httpx.RequestError:
         raise HTTPException(status_code=503, detail="Product service unavailable")
 
+
 def create_order(db: Session, order: OrderCreate, user_id: int):
     product = get_product_details(order.product_id)
 
     price = Decimal(str(product["price"]))
     total_amount = price * order.quantity
-
-    # Generate License Key for digital products
-    license_key = generate_license_key()
 
     new_order = Order(
         user_id=user_id,
@@ -34,26 +35,115 @@ def create_order(db: Session, order: OrderCreate, user_id: int):
         quantity=order.quantity,
         total_amount=total_amount,
         status="pending",
-        license_key=license_key
+        license_key=None
     )
 
     db.add(new_order)
     db.commit()
     db.refresh(new_order)
 
-    # Publish event with license key
-    publish_order_created({
-        "order_id": new_order.id,
-        "user_id": new_order.user_id,
-        "product_id": new_order.product_id,
-        "price": float(new_order.price),
-        "total_amount": float(new_order.total_amount),
-        "status": new_order.status,
-        "quantity": new_order.quantity,
-        "license_key": new_order.license_key
-    })
-
     return new_order
+
 
 def get_orders(db: Session):
     return db.query(Order).all()
+
+
+def get_orders_for_user(db: Session, user_id: int):
+    return db.query(Order).filter(Order.user_id == user_id).all()
+
+
+def pay_order(db: Session, order_id: int, user_id: int, payment_method: str = "card"):
+    order = db.query(Order).filter(Order.id == order_id, Order.user_id == user_id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    if order.status != "pending":
+        raise HTTPException(status_code=400, detail="Only pending orders can be paid")
+
+    payment_data = {
+        "order_id": order.id,
+        "amount": float(order.total_amount),
+        "payment_method": payment_method,
+        "currency": "USD",
+    }
+
+    try:
+        response = httpx.post(f"{PAYMENT_SERVICE_URL}/payments/", json=payment_data, timeout=10.0)
+        response.raise_for_status()
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=503, detail=f"Payment service unavailable: {e}")
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=response.status_code, detail="Payment failed")
+
+    order.status = "paid"
+    db.commit()
+    db.refresh(order)
+
+    return order
+
+
+def complete_order(db: Session, order_id: int, user_id: int):
+    order = db.query(Order).filter(Order.id == order_id, Order.user_id == user_id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    if order.status != "paid":
+        raise HTTPException(status_code=400, detail="Only paid orders can be completed")
+
+    order.license_key = generate_license_key()
+    order.status = "completed"
+    db.commit()
+    db.refresh(order)
+
+    publish_order_created({
+        "order_id": order.id,
+        "user_id": order.user_id,
+        "product_id": order.product_id,
+        "price": float(order.price),
+        "total_amount": float(order.total_amount),
+        "status": order.status,
+        "quantity": order.quantity,
+        "license_key": order.license_key
+    })
+
+    return order
+
+
+def update_order_status(db: Session, order_id: int, new_status: str, user_id: int):
+    order = db.query(Order).filter(Order.id == order_id, Order.user_id == user_id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    valid_transitions = {
+        "pending": ["paid", "completed", "cancelled"],
+        "paid": ["completed", "failed", "cancelled"],
+        "completed": [],
+        "failed": [],
+        "cancelled": []
+    }
+
+    current_status = order.status
+    if new_status == current_status:
+        return order
+
+    if current_status not in valid_transitions or new_status not in valid_transitions[current_status]:
+        raise HTTPException(status_code=400, detail=f"Invalid status transition from {current_status} to {new_status}")
+
+    if new_status == "completed" and not order.license_key:
+        order.license_key = generate_license_key()
+
+    order.status = new_status
+    db.commit()
+    db.refresh(order)
+
+    if new_status == "completed":
+        publish_order_created({
+            "order_id": order.id,
+            "user_id": order.user_id,
+            "product_id": order.product_id,
+            "status": order.status,
+            "license_key": order.license_key
+        })
+
+    return order

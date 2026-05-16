@@ -1,9 +1,20 @@
-from fastapi import FastAPI
+import os
 import threading
 import logging
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from consumer import consume_messages
 
 app = FastAPI(title="Notification Service")
+
+origins = os.getenv("CORS_ORIGINS", "*").split(",")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 logging.basicConfig(level=logging.INFO)
 
