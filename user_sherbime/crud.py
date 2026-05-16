@@ -1,7 +1,7 @@
 from sqlalchemy.orm import Session
 from fastapi import HTTPException
 from models import User
-from schemas import UserCreate
+from schemas import UserCreate, UserLogin
 from passlib.context import CryptContext
 import logging
 
@@ -10,8 +10,10 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 def get_password_hash(password: str):
     return pwd_context.hash(password)
 
+def verify_password(plain_password: str, hashed_password: str):
+    return pwd_context.verify(plain_password, hashed_password)
+
 def create_user(db: Session, user: UserCreate):
-    # Check duplicates
     if db.query(User).filter(User.email == user.email).first():
         raise HTTPException(status_code=400, detail="Email already registered")
     if db.query(User).filter(User.username == user.username).first():
@@ -30,11 +32,14 @@ def create_user(db: Session, user: UserCreate):
     db.refresh(new_user)
     return new_user
 
+def authenticate_user(db: Session, email: str, password: str):
+    user = db.query(User).filter(User.email == email).first()
+    if not user or not verify_password(password, user.hashed_password):
+        return False
+    return user
+
 def get_users(db: Session):
     return db.query(User).all()
 
 def get_user_by_id(db: Session, user_id: int):
     return db.query(User).filter(User.id == user_id).first()
-
-def get_user_by_email(db: Session, email: str):
-    return db.query(User).filter(User.email == email).first()
