@@ -4,9 +4,8 @@ from datetime import datetime
 from typing import Optional
 
 class OrderCreate(BaseModel):
-    user_id: int
     product_id: int
-    quantity: Optional[int] = 1   # Made optional with default
+    quantity: Optional[int] = 1
 
 class OrderResponse(BaseModel):
     id: int
