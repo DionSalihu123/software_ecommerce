@@ -2,7 +2,7 @@ from sqlalchemy.orm import Session
 from fastapi import HTTPException
 import httpx
 import logging
-from models import Order
+from models import Order, generate_license_key
 from schemas import OrderCreate
 from rabbitmq import publish_order_created
 from decimal import Decimal
@@ -24,19 +24,24 @@ def create_order(db: Session, order: OrderCreate, user_id: int):
     price = Decimal(str(product["price"]))
     total_amount = price * order.quantity
 
+    # Generate License Key for digital products
+    license_key = generate_license_key()
+
     new_order = Order(
-        user_id=user_id,                    # From JWT
+        user_id=user_id,
         product_id=order.product_id,
         price=price,
         quantity=order.quantity,
         total_amount=total_amount,
-        status="pending"
+        status="pending",
+        license_key=license_key
     )
 
     db.add(new_order)
     db.commit()
     db.refresh(new_order)
 
+    # Publish event with license key
     publish_order_created({
         "order_id": new_order.id,
         "user_id": new_order.user_id,
@@ -44,7 +49,8 @@ def create_order(db: Session, order: OrderCreate, user_id: int):
         "price": float(new_order.price),
         "total_amount": float(new_order.total_amount),
         "status": new_order.status,
-        "quantity": new_order.quantity
+        "quantity": new_order.quantity,
+        "license_key": new_order.license_key
     })
 
     return new_order

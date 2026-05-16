@@ -15,6 +15,7 @@ class OrderResponse(BaseModel):
     quantity: int
     total_amount: Decimal
     status: str
+    license_key: Optional[str] = None
     created_at: datetime
 
     class Config:
