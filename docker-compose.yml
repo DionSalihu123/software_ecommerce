@@ -99,5 +99,17 @@ services:
     restart: always
 
 
+  pgadmin:
+    image: dpage/pgadmin4
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@example.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "5050:80"
+    depends_on:
+      - postgres-db
+    restart: always
+
+
 volumes:
   postgres_data:

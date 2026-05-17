@@ -21,9 +21,15 @@ class Order(Base):
     quantity = Column(Integer, default=1)
     total_amount = Column(Numeric(10, 2), nullable=False)
 
-    # Improved Status
     status = Column(String, default="pending")  # pending, paid, completed, failed, cancelled
+    payment_status = Column(String, default="unpaid")  # unpaid, paid, failed, cancelled
     license_key = Column(String, unique=True, nullable=True)
+
+    ordered_at = Column(DateTime, default=datetime.utcnow)
+    paid_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+    cancelled_at = Column(DateTime, nullable=True)
+    failed_at = Column(DateTime, nullable=True)
 
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)

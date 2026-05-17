@@ -6,6 +6,7 @@ from models import Order, generate_license_key
 from schemas import OrderCreate
 from rabbitmq import publish_order_created
 from decimal import Decimal
+from datetime import datetime
 import os
 
 PRODUCT_SERVICE_URL = os.getenv("PRODUCT_SERVICE_URL", "http://product-service:8000")
@@ -35,6 +36,7 @@ def create_order(db: Session, order: OrderCreate, user_id: int):
         quantity=order.quantity,
         total_amount=total_amount,
         status="pending",
+        payment_status="unpaid",
         license_key=None
     )
 
@@ -45,12 +47,30 @@ def create_order(db: Session, order: OrderCreate, user_id: int):
     return new_order
 
 
+def attach_product_details(order: Order):
+    try:
+        product = get_product_details(order.product_id)
+        order.product = product
+    except HTTPException:
+        order.product = None
+    return order
+
+
 def get_orders(db: Session):
-    return db.query(Order).all()
+    orders = db.query(Order).all()
+    return [attach_product_details(order) for order in orders]
 
 
 def get_orders_for_user(db: Session, user_id: int):
-    return db.query(Order).filter(Order.user_id == user_id).all()
+    orders = db.query(Order).filter(Order.user_id == user_id).all()
+    return [attach_product_details(order) for order in orders]
+
+
+def get_order_by_id(db: Session, order_id: int, user_id: int):
+    order = db.query(Order).filter(Order.id == order_id, Order.user_id == user_id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    return attach_product_details(order)
 
 
 def pay_order(db: Session, order_id: int, user_id: int, payment_method: str = "card"):
@@ -71,12 +91,26 @@ def pay_order(db: Session, order_id: int, user_id: int, payment_method: str = "c
     try:
         response = httpx.post(f"{PAYMENT_SERVICE_URL}/payments/", json=payment_data, timeout=10.0)
         response.raise_for_status()
+        payment_result = response.json()
     except httpx.RequestError as e:
         raise HTTPException(status_code=503, detail=f"Payment service unavailable: {e}")
-    except httpx.HTTPStatusError as e:
+    except httpx.HTTPStatusError:
+        order.status = "failed"
+        order.payment_status = "failed"
+        db.commit()
+        db.refresh(order)
         raise HTTPException(status_code=response.status_code, detail="Payment failed")
 
+    if payment_result.get("status") != "success":
+        order.status = "failed"
+        order.payment_status = "failed"
+        db.commit()
+        db.refresh(order)
+        raise HTTPException(status_code=402, detail="Payment failed")
+
     order.status = "paid"
+    order.payment_status = "paid"
+    order.paid_at = datetime.utcnow()
     db.commit()
     db.refresh(order)
 
@@ -88,11 +122,12 @@ def complete_order(db: Session, order_id: int, user_id: int):
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
 
-    if order.status != "paid":
+    if order.status != "paid" or order.payment_status != "paid":
         raise HTTPException(status_code=400, detail="Only paid orders can be completed")
 
     order.license_key = generate_license_key()
     order.status = "completed"
+    order.completed_at = datetime.utcnow()
     db.commit()
     db.refresh(order)
 
@@ -130,8 +165,17 @@ def update_order_status(db: Session, order_id: int, new_status: str, user_id: in
     if current_status not in valid_transitions or new_status not in valid_transitions[current_status]:
         raise HTTPException(status_code=400, detail=f"Invalid status transition from {current_status} to {new_status}")
 
+    if new_status == "failed":
+        order.payment_status = "failed"
+        order.failed_at = datetime.utcnow()
+    elif new_status == "cancelled":
+        order.payment_status = "cancelled"
+        order.cancelled_at = datetime.utcnow()
+
     if new_status == "completed" and not order.license_key:
         order.license_key = generate_license_key()
+    if new_status == "completed":
+        order.completed_at = datetime.utcnow()
 
     order.status = new_status
     db.commit()

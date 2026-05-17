@@ -25,6 +25,14 @@ def pay_order(
 ):
     return crud.pay_order(db, order_id, current_user_id, payment.payment_method)
 
+@router.post("/orders/{order_id}/cancel", response_model=OrderResponse)
+def cancel_order(
+    order_id: int,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(get_current_user)
+):
+    return crud.update_order_status(db, order_id, "cancelled", current_user_id)
+
 @router.post("/orders/{order_id}/complete", response_model=OrderResponse)
 def complete_order(
     order_id: int,
@@ -36,6 +44,11 @@ def complete_order(
 @router.get("/orders/", response_model=List[OrderResponse])
 def get_orders(db: Session = Depends(get_db)):
     return crud.get_orders(db)
+
+@router.get("/orders/{order_id}", response_model=OrderResponse)
+def get_order(order_id: int, db: Session = Depends(get_db), current_user_id: int = Depends(get_current_user)):
+    order = crud.get_order_by_id(db, order_id, current_user_id)
+    return order
 
 @router.get("/me/orders", response_model=List[OrderResponse])
 def get_my_orders(
